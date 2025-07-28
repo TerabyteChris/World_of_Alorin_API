@@ -1617,3 +1617,8 @@ def health():
 
 app.include_router(router, prefix="/api/openai")
 app.include_router(save_router, prefix="/api")
+
+if __name__ == "__main__":
+    import uvicorn
+    import os
+    uvicorn.run(app, host="0.0.0.0", port=int(os.environ.get("PORT", 8080)))
