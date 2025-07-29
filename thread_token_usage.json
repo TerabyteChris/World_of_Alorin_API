@@ -1,0 +1,27 @@
+{
+  "2fb71551-f228-4f14-97f8-3a0aef341c2b": {
+    "prompt": 1603,
+    "completion": 2044,
+    "total": 5261
+  },
+  "a849b07e-3cf0-45be-959a-4f0128d78904": {
+    "prompt": 261,
+    "completion": 158,
+    "total": 1309
+  },
+  "null": {
+    "prompt": 4,
+    "completion": 486,
+    "total": 1574
+  },
+  "None": {
+    "prompt": 81943,
+    "completion": 7762,
+    "total": 100153
+  },
+  "8d1357b5-0d59-40a8-a8ae-8bb04bea81fd": {
+    "prompt": 29,
+    "completion": 36,
+    "total": 321
+  }
+}

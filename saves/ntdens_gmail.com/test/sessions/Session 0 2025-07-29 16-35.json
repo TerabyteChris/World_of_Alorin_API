@@ -1,0 +1,20 @@
+{
+  "thread_id": "Session 0 2025-07-29 16-35",
+  "timestamp": "2025-07-29T16:35:19.650049",
+  "messages": [
+    {
+      "role": "user",
+      "content": "Hello",
+      "token_usage": null
+    },
+    {
+      "role": "assistant",
+      "content": "The wind sighs through the ancient stones of the Lorekeeper's Keep, carrying with it the scent of distant pines and the faint, ever-present whisper of the sea. Flickering lamplight casts long, dancing shadows across shelves laden with scrolls, maps, and artifacts of ages long past. Dust motes dance in the golden glow, suspended in the still air, each one a tiny world of forgotten stories.\n\nI am Torvin, Lorekeeper of Alorin. For generations, my lineage has tended to the threads of this world's narrative, weaving them into tapestries of triumph and sorrow, of magic and mundane struggle. Now, a new thread begins. Yours.\n\nBefore we cast our lot upon the Loom of Fate, tell me, wanderer, how shall your tale begin? What shape does your spirit take?\n\nDefine yourself for me:\nWhat is your Character's Name?\nWhat Race do you claim as your own, and what Class do you walk the path of?\nWhat Background has shaped your journey thus far, and what Alignment guides your heart?\n\nAnd for this unfolding story, where does your journey begin?\nWhat Starting Region in Alorin calls to you?\nWhat grand Campaign Theme whispers in the winds?\nWhat is the Opening Situation that sets your feet upon this path?\nAnd what World Modifier, a subtle twist of fate or magic, will shape the very fabric of our tale?\n\nSpeak, and let the first notes of your song resonate through these halls.",
+      "token_usage": 2362
+    }
+  ],
+  "token_usage": 0,
+  "summary_chunks": [],
+  "last_summarized_token_usage": 0,
+  "startup_injected": false
+}
