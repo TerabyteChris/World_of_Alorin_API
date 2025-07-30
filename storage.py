@@ -68,15 +68,16 @@ def save_message(session_id, role, content, token_usage=None, user_id=None):
 
 
 
-def update_last_summarized_token_usage(thread_id, value: int):
-    path = os.path.join("data", f"{thread_id}.json")
-    if not os.path.exists(path):
+def update_last_summarized_token_usage(session_id: str, user_id: str, value: int):
+    path = get_user_session_path(session_id, user_id)
+    if not path or not os.path.exists(path):
         return
-    with open(path, "r") as f:
+    with open(path, "r", encoding="utf-8") as f:
         data = json.load(f)
     data["last_summarized_token_usage"] = value
-    with open(path, "w") as f:
+    with open(path, "w", encoding="utf-8") as f:
         json.dump(data, f, indent=2)
+
 
 
 def load_full_save(session_id: str, user_id: str) -> List[Dict]:
@@ -98,24 +99,21 @@ def get_all_thread_ids() -> list[str]:
         if filename.endswith(".json")
     ]
 
-def load_token_usage(thread_id: str, user_id: str = None) -> int:
-    """Load the total token usage for a given thread (session)."""
-    base_path = "saves"
-    if user_id:
-        from campaign_utils import sanitize_email
-        base_path = os.path.join(base_path, sanitize_email(user_id))
-
-    path = os.path.join("saves", sanitize_email(user_id), f"{thread_id}_usage.json")
-
-    if not os.path.exists(path):
-        return 0
-
+def load_token_usage(session_id: str, user_id: str) -> dict:
+    """Return a dict of token usage for a session."""
+    path = get_user_session_path(session_id, user_id)
+    if not path or not os.path.exists(path):
+        return {"prompt": 0, "completion": 0, "total": 0}
+    
     with open(path, "r", encoding="utf-8") as f:
-        try:
-            data = json.load(f)
-            return int(data.get("tokens_used", 0))
-        except Exception:
-            return 0
+        data = json.load(f)
+        usage = data.get("token_usage", {})
+        return {
+            "prompt": usage.get("prompt_tokens", 0),
+            "completion": usage.get("completion_tokens", 0),
+            "total": usage.get("total_tokens", 0)
+        }
+
         
 def load_summary_cache(session_id: str, user_id: str) -> dict:
     base_path = get_user_base_path(user_id)

@@ -26,7 +26,7 @@ if not st.user.is_logged_in:
 
 
 # === Streamlit Setup ===
-st.set_page_config(page_title="World of Alorin Chat")
+st.set_page_config(page_title="World of Alorin Chat", layout="wide")
 st.title("🗺️ World of Alorin – Narrated Chat")
 tab1, tab2 = st.tabs(["Chat", "Campaign"])
 
@@ -100,11 +100,13 @@ with st.sidebar:
 
         # Save selected session_id
         st.session_state.session_id = extract_session_id(selected_session)
+        st.session_state.campaign_name = selected_campaign_name
 
     # --- Token Usage ---
     if st.session_state.get("session_id"):
         cumulative_tokens = get_token_usage(
             st.session_state.session_id,
+            campaign_name=st.session_state.campaign_name,
             user_id=st.user.email
         )
         st.markdown(f"**🧠 Tokens Used:** {cumulative_tokens['total']:,}")
@@ -115,14 +117,16 @@ with st.sidebar:
     if st.button("🚪 Log Out"):
         st.logout()
 
+
 with tab1:
     if not st.session_state.get("campaign_id") or not st.session_state.get("session_id"):
         st.info("Please select a campaign and session to begin.")
         st.stop()
-    # === 1. Render Chat History First ===
-    for msg in st.session_state.messages:
-        with st.chat_message(msg["role"]):
-            st.markdown(msg["content"])
+    with st.container(height=600):
+        # === 1. Render Chat History First ===
+        for msg in st.session_state.messages:
+            with st.chat_message(msg["role"]):
+                st.markdown(msg["content"])
 
     # === 2. Chat Input Box LAST so it stays at bottom ===
     prompt = st.chat_input("Speak your will, adventurer...")
@@ -186,8 +190,10 @@ with tab1:
                     "completion_tokens": usage.candidates_token_count,
                     "total_tokens": total_token_count
                 },
+                campaign_name=st.session_state.campaign_name,
                 user_id=st.user.email
             )
+
 
             st.session_state.total_tokens += total_token_count
 
@@ -249,10 +255,6 @@ with tab1:
 
             st.session_state.session_id = new_thread_id
             st.toast(f"✨ New thread started: {new_thread_id[:8]}", icon="🆕")
-
-            st.toast(f"✨ New thread started: {new_thread_id[:8]}", icon="🆕")
-
-
         st.rerun()
 
 with tab2:

@@ -20,11 +20,22 @@ def get_campaigns_path(user_email: str) -> str:
 
 
 def list_campaigns(user_email: str) -> List[Dict]:
-    path = get_campaigns_path(user_email)
-    if not os.path.exists(path):
+    """Returns a list of all campaigns (from folders) under this user's directory."""
+    campaigns = []
+    base = get_user_base_path(user_email)
+    if not os.path.exists(base):
         return []
-    with open(path, "r", encoding="utf-8") as f:
-        return json.load(f)
+
+    for entry in os.listdir(base):
+        campaign_path = os.path.join(base, entry, "campaign.json")
+        if os.path.exists(campaign_path):
+            with open(campaign_path, "r", encoding="utf-8") as f:
+                try:
+                    campaigns.append(json.load(f))
+                except json.JSONDecodeError:
+                    continue
+    return campaigns
+
 
 
 def create_campaign(user_email: str, name: str) -> Dict:
@@ -46,8 +57,6 @@ def create_campaign(user_email: str, name: str) -> Dict:
     # Update campaigns index
     campaigns = list_campaigns(user_email)
     campaigns.append(metadata)
-    with open(get_campaigns_path(user_email), "w", encoding="utf-8") as f:
-        json.dump(campaigns, f, indent=2)
 
     create_session(user_email, campaign_id)
     return metadata
@@ -115,12 +124,8 @@ def readable_session_names(sessions: List[str]) -> List[str]:
 
 
 def extract_session_id(readable_name: str) -> str:
-    # Fallback to default if parsing fails
-    match = re.search(r"Session (\d+)", readable_name)
-    if not match:
-        return readable_name
-    session_number = match.group(1)
-    return next(
-        (s for s in os.listdir() if s.startswith(f"session_{session_number}_")),
-        readable_name
-    )
+    # Pass-through if already a valid filename
+    if readable_name.endswith(".json"):
+        return readable_name.replace(".json", "")
+    return readable_name  # readable_name is the full session ID like "Session 0 2025-07-30 14-18"
+

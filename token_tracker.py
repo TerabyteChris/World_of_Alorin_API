@@ -7,15 +7,16 @@ def sanitize_email(email: str) -> str:
     return re.sub(r"[^a-zA-Z0-9\-_.]", "_", email)
 
 
-def get_token_usage_path(session_id: str, user_id: str) -> str:
-    return os.path.join("saves", sanitize_email(user_id), f"{session_id}_usage.json")
+def get_token_usage_path(session_id: str, user_id: str, campaign_name: str) -> str:
+    base = os.path.join("saves", sanitize_email(user_id), campaign_name, "sessions")
+    return os.path.join(base, f"{session_id}_usage.json")
 
 
-def add_token_usage(session_id: str, usage: dict, user_id: str):
+def add_token_usage(session_id: str, usage: dict, user_id: str, campaign_name: str):
     if not usage:
         return
 
-    path = get_token_usage_path(session_id, user_id)
+    path = get_token_usage_path(session_id, user_id, campaign_name)
 
     existing = {
         "prompt": 0,
@@ -35,9 +36,11 @@ def add_token_usage(session_id: str, usage: dict, user_id: str):
         json.dump(existing, f, indent=2)
 
 
-def get_token_usage(session_id: str, user_id: str) -> dict:
-    path = get_token_usage_path(session_id, user_id)
+
+def get_token_usage(session_id: str, user_id: str, campaign_name: str) -> dict:
+    path = get_token_usage_path(session_id, user_id, campaign_name)
     if os.path.exists(path):
         with open(path, "r") as f:
             return json.load(f)
     return {"prompt": 0, "completion": 0, "total": 0}
+

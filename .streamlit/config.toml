@@ -1,3 +1,11 @@
 [server]
 enableCORS = false
 enableXsrfProtection = false
+
+[theme]
+base = "dark"
+primaryColor = "#66fcf1"         # Cyan accent
+backgroundColor = "#0b0c10"      # Dark body bg
+secondaryBackgroundColor = "#1e1e1e"  # Chat bubbles, panels
+textColor = "#c5c6c7"            # Light gray text
+font = "serif"                   # Matches your Georgia font

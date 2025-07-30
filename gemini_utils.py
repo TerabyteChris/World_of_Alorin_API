@@ -110,7 +110,7 @@ Transcript:
 """
             chat = gemini_model.start_chat()
             response = chat.send_message(prompt)
-            summary = response.text.strip()
+            summary = response.candidates[0].content.parts[0].text.strip()
 
             summaries.append(f"📍 Summary Part {i + 1}:\n{summary}")
 
