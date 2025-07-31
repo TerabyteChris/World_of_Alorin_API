@@ -1,21 +1,27 @@
 import os
 import json
-import datetime
+from datetime import datetime
 from google.generativeai import GenerativeModel, configure
 import streamlit as st
 import uuid
-from storage import load_history, save_message, get_all_thread_ids, load_full_save, get_user_session_path, load_summary_cache
+from storage import load_history, save_message, get_all_thread_ids, load_full_save, get_user_session_path, load_summary_cache, sanitize_email
 from token_tracker import add_token_usage, get_token_usage
-from gemini_utils import get_total_tokens, summarize_chat_history_with_gemini
+from gemini_utils import get_total_tokens, summarize_in_background, summarize_chat_history_with_gemini
 from campaign_utils import (
     list_campaigns, create_campaign,
     list_sessions, create_session,
     readable_session_names, extract_session_id
 )
 from prompt_loader import load_prompt
+from save_helpers import get_save_file_path, save_file_to_text
+from merge_save_files import merge_save_files
 
-MAX_TOKENS_BEFORE_SUMMARY = 200000
-MAX_TOKENS_PER_THREAD = 800000
+MAX_TOKENS_BEFORE_SUMMARY = 10000
+MAX_TOKENS_PER_THREAD = 30000
+
+def build_session_path(session_id, user_id, campaign_name):
+    return os.path.join("saves", sanitize_email(user_id), campaign_name, "sessions", f"{session_id}.json")
+
 
 # Enforce login
 if not st.user.is_logged_in:
@@ -54,7 +60,18 @@ if "messages" not in st.session_state:
     st.session_state.messages = []
 if "total_tokens" not in st.session_state:
     st.session_state.total_tokens = 0
-cumulative_tokens = get_total_tokens(st.session_state.session_id)
+if "tokens_since_summary" not in st.session_state:
+    st.session_state.tokens_since_summary = 0
+if "tokens_since_rollover" not in st.session_state:
+    st.session_state.tokens_since_rollover = 0
+cumulative_tokens = get_total_tokens(st.session_state.session_id, st.user.email)
+session_path = get_user_session_path(st.session_state.session_id, st.user.email)
+if session_path and os.path.exists(session_path):
+    with open(session_path, "r", encoding="utf-8") as f:
+        session_data = json.load(f)
+        st.session_state.tokens_since_summary = session_data.get("tokens_since_summary", 0)
+        st.session_state.tokens_since_rollover = session_data.get("tokens_since_rollover", 0)
+
 # === Sidebar ===
 with st.sidebar:
     # --- Auth Info ---
@@ -64,7 +81,13 @@ with st.sidebar:
     # --- Campaigns ---
     campaigns = list_campaigns(st.user.email)
     campaign_names = [c["name"] for c in campaigns]
-    selected_campaign_name = st.selectbox("🎲 Select Campaign", campaign_names)
+
+    if campaign_names:
+        selected_campaign_name = st.selectbox("🎲 Select Campaign", campaign_names)
+    else:
+        selected_campaign_name = None
+        st.warning("No campaigns found. Please create one to continue.")
+
 
     if "creating_campaign" not in st.session_state:
         st.session_state.creating_campaign = False
@@ -82,25 +105,39 @@ with st.sidebar:
         st.session_state.is_new_campaign = True
         st.rerun()
     # Store selected campaign ID
-    for c in campaigns:
-        if c["name"] == selected_campaign_name:
-            st.session_state.campaign_id = c["id"]
-            break
+    if selected_campaign_name:
+        for c in campaigns:
+            if c["name"] == selected_campaign_name:
+                st.session_state.campaign_id = c["id"]
+                st.session_state.campaign_name = selected_campaign_name
+                break
+    else:
+        st.session_state.campaign_id = None
+        st.session_state.campaign_name = None
+
 
     # --- Sessions ---
     if st.session_state.get("campaign_id"):
         sessions = list_sessions(st.user.email, st.session_state.campaign_id)
         session_options = readable_session_names(sessions)
-        selected_session = st.selectbox("📘 Select Session", session_options)
+        selected_session = st.selectbox("📘 Select Session", session_options, key="session_selectbox")
 
-        if st.button("➕ New Session"):
-            new_session_id = create_session(st.user.email, st.session_state.campaign_id)
-            st.session_state.session_id = new_session_id
+        # Store current ID if not already stored
+        if "previous_session_id" not in st.session_state:
+            st.session_state.previous_session_id = None
+
+        selected_id = extract_session_id(selected_session)
+
+        # Only update session state if changed
+        if selected_id != st.session_state.previous_session_id:
+            st.session_state.session_id = selected_id
+            st.session_state.messages = []
+            st.session_state.messages_loaded = False
+            st.session_state.previous_session_id = selected_id
             st.rerun()
 
-        # Save selected session_id
-        st.session_state.session_id = extract_session_id(selected_session)
         st.session_state.campaign_name = selected_campaign_name
+
 
     # --- Token Usage ---
     if st.session_state.get("session_id"):
@@ -110,7 +147,7 @@ with st.sidebar:
             user_id=st.user.email
         )
         st.markdown(f"**🧠 Tokens Used:** {cumulative_tokens['total']:,}")
-        st.progress(min(cumulative_tokens['total'] / 800000, 1.0))
+        st.progress(min(cumulative_tokens['total'] / MAX_TOKENS_PER_THREAD, 1.0))
 
     # --- Logout ---
     st.markdown("---")
@@ -122,7 +159,7 @@ with tab1:
     if not st.session_state.get("campaign_id") or not st.session_state.get("session_id"):
         st.info("Please select a campaign and session to begin.")
         st.stop()
-    with st.container(height=600):
+    with st.container(height=450):
         # === 1. Render Chat History First ===
         for msg in st.session_state.messages:
             with st.chat_message(msg["role"]):
@@ -133,14 +170,7 @@ with tab1:
 
     # === 3. Handle Submission ===
     if prompt:
-        formatted_history = [
-            {
-                "role": "model" if m["role"] == "assistant" else m["role"],
-                "parts": [{"text": m["content"]}]
-            }
-            for m in st.session_state.messages
-        ]
-
+        # === Determine the prompt header type ===
         if st.session_state.get("is_new_campaign"):
             prompt_header = load_prompt("new_campaign_prompt")
         elif summary_cache := load_summary_cache(st.session_state.session_id, user_id=st.user.email):
@@ -148,15 +178,35 @@ with tab1:
         else:
             prompt_header = load_prompt("startup_script")
 
+        # === Construct system prompt ===
         system_prompt = load_prompt("static_instructions") + "\n\n" + prompt_header
 
+        # === Get the chat history ===
+        messages, _ = load_history(st.session_state.session_id, st.user.email)
+        formatted_history = [
+            {
+                "role": m["role"],
+                "parts": [{"text": m["content"]}]
+            }
+            for m in messages if m["role"] in {"user", "model"}
+        ]
+
         # === 3. Create the chat object ===
+        # Inject system prompt as first user message
         formatted_history.insert(0, {
-            "role": "user",
+            "role": "model",
             "parts": [{"text": system_prompt}]
         })
 
-        chat = model.start_chat(history=formatted_history)
+        chat = model.start_chat(
+            history=formatted_history
+        )
+
+
+        # Only reset system_prompt once it's used
+        if st.session_state.get("system_prompt"):
+            st.session_state.system_prompt = None
+
 
 
         # Reset the campaign flag after first prompt submission
@@ -183,6 +233,9 @@ with tab1:
         if hasattr(response_stream, "usage_metadata") and response_stream.usage_metadata:
             usage = response_stream.usage_metadata
             total_token_count = usage.total_token_count
+            st.session_state.total_tokens += total_token_count
+            st.session_state.tokens_since_summary += total_token_count
+            st.session_state.tokens_since_rollover += total_token_count
             add_token_usage(
                 st.session_state.session_id,
                 {
@@ -193,9 +246,7 @@ with tab1:
                 campaign_name=st.session_state.campaign_name,
                 user_id=st.user.email
             )
-
-
-            st.session_state.total_tokens += total_token_count
+            
 
         # Save messages (assistant includes token usage)
         st.session_state.messages.append({"role": "assistant", "content": response_text})
@@ -206,54 +257,124 @@ with tab1:
             token_usage=total_token_count,
             user_id=st.user.email
         )
+        # Recalculate token usage *after* saving assistant message
+        cumulative_tokens = get_token_usage(
+            st.session_state.session_id,
+            campaign_name=st.session_state.campaign_name,
+            user_id=st.user.email
+        )
 
-        # First: Trigger summary if threshold hit
-        if cumulative_tokens.get("total", 0) >= MAX_TOKENS_BEFORE_SUMMARY and not st.session_state.get("has_summarized"):
-            st.session_state.has_summarized = True  # prevent double triggering
-            with st.spinner("📖 Summarizing this session..."):
-                try:
-                    summary_text = summarize_chat_history_with_gemini(model, st.session_state.session_id)
+        # === 4. Summary and Rollover Logic ===
+        trigger_summary = (
+            st.session_state.tokens_since_summary >= MAX_TOKENS_BEFORE_SUMMARY
+            and st.session_state.tokens_since_rollover < MAX_TOKENS_PER_THREAD
+        )
 
-                    save_path = get_user_session_path(st.session_state.session_id, st.user.email)
-                    if os.path.exists(save_path):
-                        with open(save_path, "r", encoding="utf-8") as f:
-                            save_data = json.load(f)
-                        save_data.setdefault("summary_chunks", []).append(summary_text)
-                        save_data["last_summarized_token_usage"] = cumulative_tokens
-                        with open(save_path, "w", encoding="utf-8") as f:
-                            json.dump(save_data, f, indent=2)
-                except Exception as e:
-                    st.warning(f"Summary failed: {e}")
+        trigger_rollover = st.session_state.tokens_since_rollover >= MAX_TOKENS_PER_THREAD
 
-        # Then: Create new thread if max tokens reached
-        if cumulative_tokens.get("total", 0) >= MAX_TOKENS_PER_THREAD:
+        if trigger_summary and not trigger_rollover:
+            try:
+                with st.spinner("📖 Summarizing session for memory..."):
+                    summarize_chat_history_with_gemini(
+                        gemini_model=model,
+                        user_email=st.user.email,
+                        campaign_name=st.session_state.campaign_name,
+                        thread_id=st.session_state.session_id
+                    )
+                    st.session_state.tokens_since_summary = 0
+            except Exception as e:
+                st.warning(f"Memory summary failed: {e}")
+        # Step 2: If rollover, make new thread after summary
+        if trigger_rollover:
             st.toast("⚠️ Thread too large! Archiving and starting a new one...", icon="🧠")
 
-            old_path = get_user_session_path(st.session_state.session_id, st.user.email)
-            if os.path.exists(old_path):
-                with open(old_path, "r", encoding="utf-8") as f:
-                    old_data = json.load(f)
+            # === 1. Final summary and save
+            try:
+                summarize_in_background(
+                    gemini_model=model,
+                    thread_id=st.session_state.session_id,
+                    user_email=st.user.email,
+                    campaign_name=st.session_state.campaign_name
+                )
+            except Exception as e:
+                st.warning(f"❌ Final summary before rollover failed: {e}")
+
+            # === 2. Create new session name
+            campaign_dir = os.path.join("saves", sanitize_email(st.user.email), st.session_state.campaign_name, "sessions")
+            os.makedirs(campaign_dir, exist_ok=True)
+
+            existing_sessions = [f for f in os.listdir(campaign_dir) if f.startswith("Session") and f.endswith(".json")]
+            session_numbers = []
+            for fname in existing_sessions:
+                try:
+                    parts = fname.split()
+                    if parts[0] == "Session":
+                        session_numbers.append(int(parts[1]))
+                except:
+                    continue
+
+            next_session_number = max(session_numbers + [-1]) + 1
+            now_str = datetime.now().strftime("%Y-%m-%d %H-%M")
+            new_thread_id = f"Session {next_session_number} {now_str}"
+            new_path = os.path.join(campaign_dir, f"{new_thread_id}.json")
+
+            # === 3. Merge summary_cache from old and new sessions
+            try:
+                new_session_id = create_session(st.user.email, st.session_state.campaign_id)
+                merge_save_files(
+                    old_id=st.session_state.session_id,
+                    new_id=new_session_id,
+                    user_email=st.user.email,
+                    campaign_name=st.session_state.campaign_name
+                )
+            except Exception as e:
+                st.warning(f"⚠️ Merge failed: {e}")
+
+            # === 4. Load save file and convert to priming text
+            save_path = get_save_file_path(st.user.email, st.session_state.campaign_name)
+            try:
+                priming_text = save_file_to_text(save_path)
+            except Exception as e:
+                priming_text = "(Could not load save file summary.)"
+                st.warning(f"⚠️ Failed to parse priming memory: {e}")
+
+            # === 5. Load startup script (narrator intro)
+            startup_script_path = os.path.join("prompts", "startup_script.txt")
+            if os.path.exists(startup_script_path):
+                with open(startup_script_path, "r", encoding="utf-8") as f:
+                    startup_script = f.read()
             else:
-                old_data = {}
+                startup_script = ""
 
-            new_thread_id = str(uuid.uuid4())
-            new_path = get_user_session_path(new_thread_id, st.user.email)
+            system_prompt = f"{startup_script}\n\n{priming_text}".strip()
 
+            # === 6. Create new session JSON file
             new_data = {
                 "thread_id": new_thread_id,
-                "summary_cache": old_data.get("summary_cache", {}),
-                "summary_chunks": old_data.get("summary_chunks", []),
+                "summary_cache": {},
+                "summary_chunks": [],
                 "timestamp": datetime.utcnow().isoformat(),
                 "last_summarized_token_usage": 0,
-                "token_usage": 0,
+                "token_usage": {
+                    "prompt_tokens": 0,
+                    "completion_tokens": 0,
+                    "total_tokens": 0
+                },
                 "startup_injected": True
             }
 
-            os.makedirs(os.path.dirname(new_path), exist_ok=True)
             with open(new_path, "w", encoding="utf-8") as f:
                 json.dump(new_data, f, indent=2)
 
+            # === 7. Reset app state for new session
             st.session_state.session_id = new_thread_id
+            st.session_state.messages = []
+            st.session_state.system_prompt = system_prompt
+            st.session_state.messages_loaded = False
+            st.session_state.is_new_campaign = True
+            st.session_state.tokens_since_summary = 0
+            st.session_state.tokens_since_rollover = 0
+
             st.toast(f"✨ New thread started: {new_thread_id[:8]}", icon="🆕")
         st.rerun()
 

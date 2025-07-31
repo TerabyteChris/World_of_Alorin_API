@@ -31,16 +31,31 @@ def get_user_session_path(session_id: str, user_id: str) -> str:
 
 
 
-def load_history(session_id: str, user_id: str = None):
-    path = get_user_session_path(session_id, user_id)
+def load_history(thread_id: str, user_id: str = None):
+    path = get_user_session_path(thread_id, user_id)
     if not path or not os.path.exists(path):
-        return [], 0  # Return empty history and 0 tokens if file doesn't exist
+        return [], 0
 
-    with open(path, "r", encoding="utf-8") as f:
-        data = json.load(f)
-        messages = data.get("messages", [])
-        token_usage = data.get("token_usage", 0)
-        return messages, token_usage
+    try:
+        with open(path, "r", encoding="utf-8") as f:
+            data = json.load(f)
+    except (json.JSONDecodeError, OSError) as e:
+        print(f"⚠️ Failed to load or parse thread history for {thread_id}: {e}")
+        return [], 0
+
+    raw_messages = data.get("messages", [])
+    if not isinstance(raw_messages, list):
+        print(f"⚠️ Malformed message list in thread {thread_id}")
+        return [], 0
+
+    messages = [m for m in raw_messages if isinstance(m, dict) and "role" in m and "content" in m]
+    total_tokens = data.get("token_usage", 0)
+    if not isinstance(total_tokens, int):
+        total_tokens = total_tokens.get("total", 0) if isinstance(total_tokens, dict) else 0
+
+    return messages, total_tokens
+
+
 
 
 

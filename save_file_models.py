@@ -171,9 +171,6 @@ class PlayerCharacter(BaseModel):
     _normalize_spell_slots = validator("spell_slots", "currency", pre=True, allow_reuse=True)(coerce_to_dict)
     _normalize_ability_scores = validator("ability_scores", pre=True, allow_reuse=True)(coerce_to_dict)
 
-
-
-
 class SaveFile(BaseModel):
     session_id: str
     timestamp: datetime

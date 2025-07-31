@@ -2,16 +2,15 @@ import json
 import os
 from pathlib import Path
 from typing import List, Dict
+from storage import get_user_session_path
 
 MERGE_CLASSES = ["key_npcs", "factions_encountered", "known_locations"]
 
 
-def merge_save_files(old_id: str, new_id: str) -> None:
+def merge_save_files(old_id: str, new_id: str, user_email: str, campaign_name: str):
     try:
-        base_path = Path("saves")
-        old_path = base_path / f"{old_id}.json"
-        new_path = base_path / f"{new_id}.json"
-
+        old_path = Path(get_user_session_path(old_id, user_email))
+        new_path = Path(get_user_session_path(new_id, user_email))
         print(f"📂 Merging saves: {old_path} → {new_path}")
 
         if not old_path.exists():

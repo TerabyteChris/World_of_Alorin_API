@@ -14,6 +14,9 @@ def sanitize_email(email: str) -> str:
 def get_user_base_path(user_email: str) -> str:
     return os.path.join("saves", sanitize_email(user_email))
 
+def get_campaign_path(user_email: str, campaign_name: str) -> str:
+    return os.path.join(get_user_base_path(user_email), campaign_name)
+
 
 def get_campaigns_path(user_email: str) -> str:
     return os.path.join(get_user_base_path(user_email), "campaigns.json")
